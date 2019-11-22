@@ -51,6 +51,11 @@ object behaviors {
       case _ => Failure(new RuntimeException("That didn't work"))
     }
   }
+
+  def evalConditional(m: Store)(l: Expr, operator: String, r: Expr): Unit ={
+
+  }
+
   def evalSigns(m: Store)(l: Expr, sign: String, r: Expr): Result = {
     val v1 = evaluate(m)(l)
     val v2 = evaluate(m)(r)
@@ -60,6 +65,17 @@ object behaviors {
       case _ => Failure(new RuntimeException("That didn't work"))
     }
   }
+
+  def conditionals(v1: Int, operator: String, v2: Int):Boolean = operator match {
+    case "==" => v1 == v2
+    case ">" => v1 > v2
+    case "<" => v1 < v2
+    case ">=" => v1 >= v2
+    case "<=" => v1 <= v2
+    case "!=" => v1 != v2
+  }
+
+
   def signs(v1: Int, sign: String, v2: Int) = sign match {
     case "+" => v1 + v2
     case "-" => v1 - v2
