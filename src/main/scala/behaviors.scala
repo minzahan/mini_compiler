@@ -56,7 +56,8 @@ object behaviors {
     val v1 = evaluate(m)(l)
     val v2 = evaluate(m)(r)
     (v1,v2) match {
-      case
+      //TODO: Success(Cell(???))
+      case _ => Failure(new RuntimeException("That didn't work"))
     }
   }
 
