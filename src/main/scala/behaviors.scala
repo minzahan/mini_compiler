@@ -1,18 +1,88 @@
 package edu.luc.cs.laufer.cs473.expressions
 
 import ast._
+import scala.util.{Failure, Success, Try}
 
 object behaviors {
 
-  def evaluate(e: Expr): Int = e match {
-    case Constant(c) => c
-    case UMinus(r)   => -evaluate(r)
-    case Plus(l, r)  => evaluate(l) + evaluate(r)
-    case Minus(l, r) => evaluate(l) - evaluate(r)
-    case Times(l, r) => evaluate(l) * evaluate(r)
-    case Div(l, r)   => evaluate(l) / evaluate(r)
-    case Mod(l, r)   => evaluate(l) % evaluate(r)
+  case class Cell(var value: Value) {
+    def get: Value = value
+    def set(value: Value): Unit = this.value = value
+  }
+  object Cell {
+    def apply(i: Int): Cell = Cell(Num(i))
+    val NULL = Cell(0)
+  }
 
+  type Instance = Map[String, Cell]
+  type Store = Instance
+  sealed trait Value
+  case class Num(value: Int) extends Value
+  type Result = Try[Cell]
+
+  def lookup(store: Store)(name: String): Result =
+    store.get(name).fold {
+      Failure(new NoSuchFieldException(name)): Result
+    } {
+      Success(_)
+    }
+
+  def evaluate(m: Store)(e: Expr): Result = e match { //TODO for 3b
+    case Constant(c) => Success(Cell(Num(c)))
+    case UMinus(r)   => evalUnary(m)(r, "-")
+    case Plus(l, r)  => evalSigns(m)(l, "+", r)
+    case Minus(l, r) => evalSigns(m)(l, "-", r)
+    case Times(l, r) => evalSigns(m)(l, "*", r)
+    case Div(l, r)   => evalSigns(m)(l, "/", r)
+    case Mod(l, r)   => evalSigns(m)(l, "%", r)
+    case Var(v)      => lookup(m)(v)
+    case Loop(l, r)  => ???
+    case Assignment(l, r) => {
+      for {
+        lvalue <- lookup(m)(l.toString)
+        Cell(rvalue) <- evaluate(m)(r)
+        _ <- Success(lvalue.set(rvalue))
+      } yield Cell.NULL
+    }
+    case Block(s @ _*) => {
+      val i = s.iterator
+      var result: Cell = Cell.NULL
+      while (i.hasNext) {
+        evaluate(m)(i.next()) match {
+          case Success(r)     => result = r
+          case f @ Failure(_) => return f
+        }
+      }
+      Success(result)
+    }
+    case Conditional(e, l, r) => ???
+  }
+  def evalUnary(m: Store)(v: Expr, sign: String): Result = {
+    val v1 = evaluate(m)(v)
+    v1 match {
+      case Success(Cell(Num(v1))) => Success(Cell(Num(evalUnarySign(m)(v1, sign))))
+      case _                      => Failure(new RuntimeException("That didn't work"))
+    }
+  }
+  def evalUnarySign(m: Store)(v1: Int, sign: String): Int = sign match {
+    case "-" => -v1
+    case _   => v1
+  }
+  def evalSigns(m: Store)(l: Expr, sign: String, r: Expr): Result = {
+    val v1 = evaluate(m)(l)
+    val v2 = evaluate(m)(r)
+    (v1, v2) match {
+      case (Success(Cell(Num(v1))), Success(Cell(Num(v2)))) =>
+        Success(Cell(Num(signs(v1, sign, v2))))
+      case _ => Failure(new RuntimeException("That didn't work"))
+    }
+  }
+  def signs(v1: Int, sign: String, v2: Int) = sign match {
+    case "+" => v1 + v2
+    case "-" => v1 - v2
+    case "*" => v1 * v2
+    case "/" => v1 / v2
+    case "%" => v1 % v2
   }
 
   def size(e: Expr): Int = e match {
@@ -46,16 +116,42 @@ object behaviors {
     case Div(l, r)              => buildExprString(prefix, "Div", toFormattedString(prefix + INDENT)(l), toFormattedString(prefix + INDENT)(r))
     case Mod(l, r)              => buildExprString(prefix, "Mod", toFormattedString(prefix + INDENT)(l), toFormattedString(prefix + INDENT)(r))
     case Var(v)                 => prefix + v.toString
-    // case Loop(l,r) => buildExprString(prefix)
-    // case Conditional(c,l,r) =>
-    // case Assignment(l,r) =>
-    // case Block(statements: Expr*) => prefix
     case Loop(l, r)             => buildExprString(prefix, nodeString = "Loop", toFormattedString(prefix + INDENT)(l), toFormattedString(prefix + INDENT)(r))
     case Assignment(l, r)       => buildExprString(prefix, nodeString = "Assignment", toFormattedString(prefix + INDENT)(l), toFormattedString(prefix + INDENT)(r))
+
     case Block(b @ _*)          => buildBlockString(prefix, b)
     case Conditional(e, b1, b2) => buildTrinaryExprString(prefix, "Conditional", toFormattedString(prefix + INDENT)(e), toFormattedString(prefix + INDENT)(b1), toFormattedString(prefix + INDENT)(b2))
   }
   def toFormattedString(e: Expr): String = toFormattedString("")(e)
+
+  def toPrettyFormatABC(prefix: String)(e: Expr): String = e match {
+
+    case Constant(c)              => prefix + c.toString
+    case UMinus(r)                => buildUnaryPrettyString(prefix, "-", toPrettyFormatABC(prefix)(r)) //TODO forgot what uminus does
+    case Plus(l, r)               => buildPrettySign(prefix, " + ", toPrettyFormatABC(prefix)(l), toPrettyFormatABC(prefix)(r))
+    case Minus(l, r)              => buildPrettySign(prefix, " - ", toPrettyFormatABC(prefix)(l), toPrettyFormatABC(prefix)(r))
+    case Times(l, r)              => buildPrettySign(prefix, " * ", toPrettyFormatABC(prefix)(l), toPrettyFormatABC(prefix)(r))
+    case Div(l, r)                => buildPrettySign(prefix, " / ", toPrettyFormatABC(prefix)(l), toPrettyFormatABC(prefix)(r))
+    case Mod(l, r)                => buildPrettySign(prefix, " % ", toPrettyFormatABC(prefix)(l), toPrettyFormatABC(prefix)(r))
+    case Var(v)                   => prefix + v.toString
+    case Loop(l, r)               => buildPrettyLoop(prefix, "while", toPrettyFormatABC(prefix)(l), toPrettyFormatABC(prefix)(r))
+    case Assignment(l, r)         => buildPrettyAssign(prefix, " = ", toPrettyFormatABC(prefix)(l), toPrettyFormatABC(prefix)(r))
+    case Block(e @ _*)            => buildPrettyBlockString(prefix, e)
+    case Conditional(con, b1, b2) => buildPrettyTrinary(prefix, toPrettyFormatABC(prefix)(con), toPrettyFormatABC(prefix)(b1), toPrettyFormatABC(prefix)(b2))
+
+  }
+  def toPrettyFormatABC(e: Expr): String = toPrettyFormatABC("")(e)
+
+  def buildPrettyBlockString(prefix: String, e: Seq[Expr]) = {
+    val result = new StringBuilder(prefix)
+    result.append("{")
+    result.append(EOL)
+    val strings = e.map(expr => toPrettyFormatABC(prefix)(expr))
+    strings.foreach(strings => result.append(strings))
+    result.append(EOL)
+    result.append("}")
+    result.toString
+  }
 
   def buildExprString(prefix: String, nodeString: String, leftString: String, rightString: String) = {
     val result = new StringBuilder(prefix)
@@ -69,8 +165,8 @@ object behaviors {
     result.append(")")
     result.toString
   }
+
   def buildTrinaryExprString(prefix: String, nodeString: String, conditional: String, leftString: String, rightString: String) = {
-    //TODO finish this
     val result = new StringBuilder(prefix)
     result.append(nodeString)
     result.append("(")
@@ -101,6 +197,57 @@ object behaviors {
     result.append(exprString)
     result.append(")")
     result.toString
+  }
+  def buildUnaryPrettyString(prefix: String, nodeString: String, exprString: String) = {
+    val result = new StringBuilder(prefix)
+    result.append(nodeString)
+    result.append("(")
+    result.append(EOL)
+    result.append(exprString)
+    result.append(")")
+    result.toString
+  }
+
+  def buildPrettySign(prefix: String, sign: String, leftExpr: String, rightExpr: String) = {
+    val result = new StringBuilder(prefix)
+    result.append("(")
+    result.append(leftExpr)
+    result.append(sign)
+    result.append(rightExpr)
+    result.append(")")
+    result.toString
+  }
+
+  def buildPrettyAssign(prefix: String, sign: String, leftExpr: String, rightExpr: String) = {
+    val result = new StringBuilder(prefix)
+    result.append(leftExpr)
+    result.append(sign)
+    result.append(rightExpr)
+    result.append(";")
+    result.append(EOL)
+    result.toString
+  }
+
+  def buildPrettyLoop(prefix: String, l: String, leftExpr: String, rightExpr: String) = {
+    val result = new StringBuilder(prefix)
+    result.append(l)
+    result.append("(")
+    result.append(leftExpr)
+    result.append(")")
+    result.append(rightExpr)
+    result.toString
+  }
+
+  def buildPrettyTrinary(prefix: String, conditional: String, leftString: String, rightString: String) = {
+    val result = new StringBuilder(prefix)
+    result.append("if (")
+    result.append(conditional)
+    result.append(")")
+    result.append(leftString)
+    result.append(" else ")
+    result.append(rightString)
+    result.append(EOL)
+    result.toString()
   }
 
   val EOL = scala.util.Properties.lineSeparator

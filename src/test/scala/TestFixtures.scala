@@ -1,5 +1,7 @@
 package edu.luc.cs.laufer.cs473.expressions
 
+import edu.luc.cs.laufer.cs473.expressions.behaviors.Cell
+
 object TestFixtures {
 
   import ast._
@@ -40,10 +42,15 @@ object TestFixtures {
       ),
       Constant(5)
     );
+
+
+
   val simple1string = "x = 5;"
   val simple1 = Block(
     Assignment(Var("x"), Constant(5))
   );
+  val store1 = Map.empty[String, Cell]
+  store1.put("x", Num(5))
 
   //  val simple1ugly =
   //    """Assignment(
@@ -56,6 +63,9 @@ object TestFixtures {
     Assignment(Var("x"), Constant(5)),
     Assignment(Var("y"), Constant(7))
   );
+  val store2 = Map.empty[String, Cell]
+  store2.put("x", Num(4))
+  store2.put("y", Num(6))
 
   val simple3string = "((1 + y2) - (3 * y4)) / 5;"
   val simple3 = Block(
@@ -81,6 +91,8 @@ object TestFixtures {
       ),
     )
   );
+  val store4 = Map.empty[String, Cell]
+  store4.put("x", Num(2))
 
   val complex3string = "{ x = 1 + 2; y = x + 2;}"
   val complex3 = Block(
