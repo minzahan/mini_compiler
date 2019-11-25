@@ -1,88 +1,99 @@
 package edu.luc.cs.laufer.cs473.expressions
 
 import ast._
+import scala.collection.mutable.HashMap
 import scala.util.{Failure, Success, Try}
 
 object behaviors {
 
-  case class Cell(var value: Value) {
-    def get: Value = value
-    def set(value: Value): Unit = this.value = value
-  }
-  object Cell {
-    def apply(i: Int): Cell = Cell(Num(i))
-    val NULL = Cell(0)
-  }
-
-  type Instance = Map[String, Cell]
+  type Instance = HashMap[String, Value]
   type Store = Instance
   sealed trait Value
   case class Num(value: Int) extends Value
-  type Result = Try[Cell]
-
-  def lookup(store: Store)(name: String): Result =
-    store.get(name).fold {
-      Failure(new NoSuchFieldException(name)): Result
-    } {
-      Success(_)
-    }
+  type Result = Try[Value]
 
   def evaluate(m: Store)(e: Expr): Result = e match { //TODO for 3b
-    case Constant(c) => Success(Cell(Num(c)))
-    case UMinus(r)   => evalUnary(m)(r , "-")
+    case Constant(c) => Success(Num(c))
+    case UMinus(r)   => evalUnary(m)(r, "-")
     case Plus(l, r)  => evalSigns(m)(l, "+", r)
     case Minus(l, r) => evalSigns(m)(l, "-", r)
     case Times(l, r) => evalSigns(m)(l, "*", r)
     case Div(l, r)   => evalSigns(m)(l, "/", r)
     case Mod(l, r)   => evalSigns(m)(l, "%", r)
-    case Var(v) => lookup(m)(v)
-    case Loop(l,r) => ???
-    case Assignment(l, r) => ???
-    case Block(s@_*) => ???
-    case Conditional(e,l,r) => evalConditional(m)(l,e,r)
+    case Var(v) => {
+      if (m.contains(v)) {
+        Success(m(v))
+      } else {
+        Failure(new NoSuchFieldException(v))
+      }
+    }
+    case Loop(l, r) => {
+      while (evaluate(m)(l) != Success(Num(0))) {
+        evaluate(m)(r)
+      }
+      evaluate(m)(l)
+    }
+    case Assignment(l, r) => {
+      val valueL = l.toString.substring(l.toString.indexOf("(") + 1, l.toString.indexOf(")"))
+      val valueRstr = r.toString.substring(r.toString.indexOf("(") + 1, r.toString.indexOf(")"))
+      val valueR = evaluate(m)(r)
+      valueR match {
+        case Failure(thrown) => {
+          Failure(new NoSuchFieldException(valueRstr))
+        }
+        case s => {
+          if (m.contains(valueL)) {
+            m(valueL) = s.get
+            s
+          } else {
+            m += (valueL -> s.get)
+            s
+          }
+        }
+      }
+    }
+    case Block(s @ _*) => {
+      val i = s.iterator
+      var result: Value = null
+      while (i.hasNext) {
+        evaluate(m)(i.next()) match {
+          case Success(r)     => result = r
+          case f @ Failure(_) => return f
+        }
+      }
+      Success(result)
+    }
+    case Conditional(e, l, r) => {
+      val ans = evaluate(m)(e)
+      ans match {
+        case Failure(thrown) => {
+          evaluate(m)(r)
+        }
+        case s => {
+          evaluate(m)(l)
+        }
+      }
+    }
   }
-  def evalUnary(m: Store)(v : Expr, sign : String) : Result = {
+  def evalUnary(m: Store)(v: Expr, sign: String): Result = {
     val v1 = evaluate(m)(v)
     v1 match {
-      case (Success(Cell(Num(v1)))) => {
-        case "+" => Success(Cell(Num(v1)))
-        case "-" => Success(Cell(Num(-v1)))
-      }
-      case _ => Failure(new RuntimeException("That didn't work"))
+      case Success(Num(v1)) => Success(Num(evalUnarySign(m)(v1, sign)))
+      case _                => Failure(new RuntimeException("That didn't work"))
     }
   }
-
-  def evalConditional(m: Store)(l: Expr, operator: String, r: Expr): Result ={
-    val v1 = evaluate(m)(l)
-    val v2 = evaluate(m)(r)
-    (v1,v2) match {
-      //TODO: Success(Cell(???))
-      case _ => Failure(new RuntimeException("That didn't work"))
-    }
+  def evalUnarySign(m: Store)(v1: Int, sign: String): Int = sign match {
+    case "-" => -v1
+    case _   => v1
   }
-
   def evalSigns(m: Store)(l: Expr, sign: String, r: Expr): Result = {
     val v1 = evaluate(m)(l)
     val v2 = evaluate(m)(r)
     (v1, v2) match {
-      case (Success(Cell(Num(v1))), Success(Cell(Num(v2)))) =>
-        Success(Cell(Num(signs(v1, sign, v2))))
-      case _ => Failure(new RuntimeException("That didn't work"))
+      case (Success(Num(v1)), Success(Num(v2))) => Success(Num(signs(v1, sign, v2)))
+      case _                                    => Failure(new RuntimeException("That didn't work"))
     }
   }
-
-  def conditionals(v1: Boolean, operator: String, v2: Boolean):Boolean = operator match {
-    case "==" => v1 == v2
-    case ">" => v1 > v2
-    case "<" => v1 < v2
-    case ">=" => v1 >= v2
-    case "<=" => v1 <= v2
-    case "!=" => v1 != v2
-    case "||" => v1 || v2
-    case "&&" => v1 && v2
-
-  }
-
   def signs(v1: Int, sign: String, v2: Int) = sign match {
     case "+" => v1 + v2
     case "-" => v1 - v2
@@ -111,8 +122,7 @@ object behaviors {
     case Mod(l, r)   => 1 + math.max(height(l), height(r))
     case Var(v)      => 1
   }
-  // Need Pretty Printer later. Only in block we'll worry about indentation. Try not to do it anywhere else
-  // IMPORTANT ONE, HAVE TO COMPLETE
+
   def toFormattedString(prefix: String)(e: Expr): String = e match {
     case Constant(c)            => prefix + c.toString
     case UMinus(r)              => buildUnaryExprString(prefix, "UMinus", toFormattedString(prefix + INDENT)(r))
@@ -124,7 +134,6 @@ object behaviors {
     case Var(v)                 => prefix + v.toString
     case Loop(l, r)             => buildExprString(prefix, nodeString = "Loop", toFormattedString(prefix + INDENT)(l), toFormattedString(prefix + INDENT)(r))
     case Assignment(l, r)       => buildExprString(prefix, nodeString = "Assignment", toFormattedString(prefix + INDENT)(l), toFormattedString(prefix + INDENT)(r))
-
     case Block(b @ _*)          => buildBlockString(prefix, b)
     case Conditional(e, b1, b2) => buildTrinaryExprString(prefix, "Conditional", toFormattedString(prefix + INDENT)(e), toFormattedString(prefix + INDENT)(b1), toFormattedString(prefix + INDENT)(b2))
   }
